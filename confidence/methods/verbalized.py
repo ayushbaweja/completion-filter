@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import asyncio
 import re
 import sys
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from google import genai
-from google.genai import types
+from openai import AsyncOpenAI
 
 from shared.models import ConfidenceResult
 
@@ -23,33 +21,33 @@ _SYSTEM_PROMPT = (
 class VerbalizedConfidence:
     """Confidence estimation by asking the model to self-assess."""
 
-    def __init__(self, client: genai.Client):
+    def __init__(self, client: AsyncOpenAI):
         self.client = client
 
     async def estimate(
         self,
         prompt: str,
         draft_response: str,
-        model: str = "gemma-4-31b-it",
+        model: str = "minimax/minimax-m2.5:free",
     ) -> ConfidenceResult:
-        user_msg = (
-            f"Question: {prompt}\n\n"
-            f"Draft Answer: {draft_response}\n\n"
-            "Confidence (0-100):"
-        )
-
-        response = await asyncio.to_thread(
-            self.client.models.generate_content,
+        response = await self.client.chat.completions.create(
             model=model,
-            contents=user_msg,
-            config=types.GenerateContentConfig(
-                system_instruction=_SYSTEM_PROMPT,
-                temperature=0,
-                max_output_tokens=5,
-            ),
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Question: {prompt}\n\n"
+                        f"Draft Answer: {draft_response}\n\n"
+                        "Confidence (0-100):"
+                    ),
+                },
+            ],
+            temperature=0,
+            max_tokens=5,
         )
 
-        raw = (response.text or "").strip()
+        raw = (response.choices[0].message.content or "").strip()
         match = re.search(r"(\d+)", raw)
         if match:
             pct = min(100, max(0, int(match.group(1))))

@@ -1,65 +1,89 @@
 from __future__ import annotations
 
 import asyncio
+import math
+import re
 import sys
 import os
+from collections import Counter
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from google import genai
-from google.genai import types
+from openai import AsyncOpenAI
 
 from confidence.utils import mean_pairwise_cosine
 from shared.models import ConfidenceResult
+
+
+def _tfidf_embed(texts: list[str]) -> list[list[float]]:
+    """Compute simple TF-IDF embeddings locally (no API needed)."""
+    tokenized = [re.findall(r"\w+", t.lower()) for t in texts]
+
+    # Build vocabulary
+    vocab: dict[str, int] = {}
+    doc_freq: Counter[str] = Counter()
+    for tokens in tokenized:
+        unique = set(tokens)
+        for tok in unique:
+            doc_freq[tok] += 1
+        for tok in tokens:
+            if tok not in vocab:
+                vocab[tok] = len(vocab)
+
+    n_docs = len(texts)
+    embeddings: list[list[float]] = []
+    for tokens in tokenized:
+        tf = Counter(tokens)
+        vec = [0.0] * len(vocab)
+        for tok, count in tf.items():
+            idf = math.log((n_docs + 1) / (doc_freq[tok] + 1)) + 1
+            vec[vocab[tok]] = count * idf
+        # L2 normalize
+        norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+        vec = [v / norm for v in vec]
+        embeddings.append(vec)
+
+    return embeddings
 
 
 class SemanticEntropyConfidence:
     """Confidence estimation via multi-sample semantic entropy.
 
     Generates N responses to the same prompt with temperature > 0,
-    embeds them, and measures agreement via mean pairwise cosine similarity.
+    embeds them locally via TF-IDF, and measures agreement via
+    mean pairwise cosine similarity.
     High similarity = consistent answers = high confidence.
     """
 
-    def __init__(self, client: genai.Client):
+    def __init__(self, client: AsyncOpenAI):
         self.client = client
 
-    def _generate_one(
+    async def _generate_one(
         self, prompt: str, model: str, temperature: float
     ) -> str:
-        response = self.client.models.generate_content(
+        response = await self.client.chat.completions.create(
             model=model,
-            contents=prompt,
-            config=types.GenerateContentConfig(temperature=temperature),
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
         )
-        return response.text or ""
+        return response.choices[0].message.content or ""
 
     async def estimate(
         self,
         prompt: str,
-        model: str = "gemma-4-31b-it",
+        model: str = "minimax/minimax-m2.5:free",
         n_samples: int = 5,
         temperature: float = 0.8,
-        embedding_model: str = "text-embedding-004",
     ) -> ConfidenceResult:
         # Generate N responses concurrently
         tasks = [
-            asyncio.to_thread(self._generate_one, prompt, model, temperature)
+            self._generate_one(prompt, model, temperature)
             for _ in range(n_samples)
         ]
         responses = await asyncio.gather(*tasks)
 
-        # Embed all responses
-        embed_tasks = [
-            asyncio.to_thread(
-                self.client.models.embed_content,
-                model=embedding_model,
-                contents=resp,
-            )
-            for resp in responses
-        ]
-        embed_results = await asyncio.gather(*embed_tasks)
-        embeddings = [r.embeddings[0].values for r in embed_results]
+        # Embed locally via TF-IDF
+        embeddings = _tfidf_embed(list(responses))
 
         # Compute mean pairwise cosine similarity
         agreement = mean_pairwise_cosine(embeddings)

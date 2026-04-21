@@ -7,7 +7,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from dotenv import load_dotenv
-from google import genai
+from openai import AsyncOpenAI
 
 load_dotenv()
 
@@ -15,6 +15,9 @@ from confidence.methods.logprob import LogprobConfidence
 from confidence.methods.semantic_entropy import SemanticEntropyConfidence
 from confidence.methods.verbalized import VerbalizedConfidence
 from shared.models import ConfidenceResult
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+DEFAULT_MODEL = "minimax/minimax-m2.5:free"
 
 
 class ConfidenceEstimator:
@@ -28,11 +31,14 @@ class ConfidenceEstimator:
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = "gemma-4-31b-it",
+        model: str = DEFAULT_MODEL,
         uncertainty_threshold: float = 0.4,
         aggregation: str = "min",  # "min" | "mean" | "weighted"
     ):
-        self.client = genai.Client(api_key=api_key or os.getenv("GEMINI_API_KEY"))
+        self.client = AsyncOpenAI(
+            api_key=api_key or os.getenv("OPENROUTER_API_KEY"),
+            base_url=OPENROUTER_BASE_URL,
+        )
         self.model = model
         self.uncertainty_threshold = uncertainty_threshold
         self.aggregation = aggregation

@@ -46,8 +46,8 @@ async def run_all(estimator: ConfidenceEstimator, prompt: str) -> None:
     aggregated = estimator.aggregate(results)
     print()
     print_confidence("aggregated", aggregated)
-    print(f"\n  Draft response (first 200 chars): {draft[:200]}")
-    print(f"  Uncertain: {estimator.is_uncertain(aggregated)}")
+    print(f"\n  Model response:\n{draft}")
+    print(f"\n  Uncertain: {estimator.is_uncertain(aggregated)}")
 
 
 async def demo() -> None:
@@ -70,7 +70,7 @@ def main() -> None:
     parser.add_argument("prompt", nargs="?", help="Custom prompt to evaluate")
     parser.add_argument("--method", choices=["logprob", "semantic_entropy", "verbalized"], help="Run a single method")
     parser.add_argument("--all", action="store_true", help="Run all methods")
-    parser.add_argument("--model", default="gpt-4o", help="OpenAI model to use")
+    parser.add_argument("--model", default="minimax/minimax-m2.5:free", help="OpenRouter model to use")
     parser.add_argument("--threshold", type=float, default=0.4, help="Uncertainty threshold")
     parser.add_argument("--aggregation", default="min", choices=["min", "mean", "weighted"])
     args = parser.parse_args()

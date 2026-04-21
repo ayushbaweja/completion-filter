@@ -15,7 +15,7 @@ Confidence estimation pipeline for LLM outputs. Estimates how confident a model 
 ```bash
 uv venv --python 3.12 && source .venv/bin/activate
 uv pip install -r requirements.txt
-cp .env.example .env  # then add your Gemini API key
+cp .env.example .env  # then add your OpenRouter API key
 ```
 
 ## Usage
