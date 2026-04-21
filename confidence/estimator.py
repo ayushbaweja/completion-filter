@@ -11,7 +11,6 @@ from openai import AsyncOpenAI
 
 load_dotenv()
 
-from confidence.methods.logprob import LogprobConfidence
 from confidence.methods.semantic_entropy import SemanticEntropyConfidence
 from confidence.methods.verbalized import VerbalizedConfidence
 from shared.models import ConfidenceResult
@@ -25,7 +24,7 @@ class ConfidenceEstimator:
 
     Methods:
         estimate     -- run a single confidence method
-        estimate_all -- run all three methods concurrently
+        estimate_all -- run both methods concurrently
     """
 
     def __init__(
@@ -33,7 +32,7 @@ class ConfidenceEstimator:
         api_key: str | None = None,
         model: str = DEFAULT_MODEL,
         uncertainty_threshold: float = 0.4,
-        aggregation: str = "min",  # "min" | "mean" | "weighted"
+        aggregation: str = "min",  # "min" | "mean"
     ):
         self.client = AsyncOpenAI(
             api_key=api_key or os.getenv("OPENROUTER_API_KEY"),
@@ -43,21 +42,26 @@ class ConfidenceEstimator:
         self.uncertainty_threshold = uncertainty_threshold
         self.aggregation = aggregation
 
-        self._logprob = LogprobConfidence(self.client)
         self._semantic = SemanticEntropyConfidence(self.client)
         self._verbalized = VerbalizedConfidence(self.client)
 
+    async def _generate_draft(self, prompt: str) -> str:
+        """Generate a draft response to use for verbalized confidence."""
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+        )
+        return response.choices[0].message.content or ""
+
     async def estimate(
-        self, prompt: str, method: str = "logprob"
+        self, prompt: str, method: str = "semantic_entropy"
     ) -> ConfidenceResult:
         """Run a single confidence estimation method."""
-        if method == "logprob":
-            result, _ = await self._logprob.estimate(prompt, model=self.model)
-            return result
-        elif method == "semantic_entropy":
+        if method == "semantic_entropy":
             return await self._semantic.estimate(prompt, model=self.model)
         elif method == "verbalized":
-            _, draft = await self._logprob.estimate(prompt, model=self.model)
+            draft = await self._generate_draft(prompt)
             return await self._verbalized.estimate(
                 prompt, draft, model=self.model
             )
@@ -67,10 +71,8 @@ class ConfidenceEstimator:
     async def estimate_all(
         self, prompt: str
     ) -> tuple[dict[str, ConfidenceResult], str]:
-        """Run all three methods concurrently. Returns (results_dict, draft_response)."""
-        logprob_result, draft = await self._logprob.estimate(
-            prompt, model=self.model
-        )
+        """Run both methods concurrently. Returns (results_dict, draft_response)."""
+        draft = await self._generate_draft(prompt)
 
         semantic_result, verbalized_result = await asyncio.gather(
             self._semantic.estimate(prompt, model=self.model),
@@ -78,7 +80,6 @@ class ConfidenceEstimator:
         )
 
         results = {
-            "logprob": logprob_result,
             "semantic_entropy": semantic_result,
             "verbalized": verbalized_result,
         }
@@ -92,12 +93,6 @@ class ConfidenceEstimator:
             final_score = min(scores)
         elif self.aggregation == "mean":
             final_score = sum(scores) / len(scores)
-        elif self.aggregation == "weighted":
-            weights = {"logprob": 0.5, "semantic_entropy": 0.3, "verbalized": 0.2}
-            final_score = sum(
-                results[k].score * weights.get(k, 0.33)
-                for k in results
-            )
         else:
             final_score = min(scores)
 
@@ -106,7 +101,7 @@ class ConfidenceEstimator:
         return ConfidenceResult(
             score=round(final_score, 4),
             method_used=f"aggregated_{self.aggregation}",
-            raw_logprob=best.raw_logprob,
+            raw_logprob=None,
             sample_agreement=results.get("semantic_entropy", best).sample_agreement,
         )
 

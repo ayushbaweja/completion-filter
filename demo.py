@@ -68,11 +68,11 @@ async def demo() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Confidence Estimation Pipeline Demo")
     parser.add_argument("prompt", nargs="?", help="Custom prompt to evaluate")
-    parser.add_argument("--method", choices=["logprob", "semantic_entropy", "verbalized"], help="Run a single method")
+    parser.add_argument("--method", choices=["semantic_entropy", "verbalized"], help="Run a single method")
     parser.add_argument("--all", action="store_true", help="Run all methods")
     parser.add_argument("--model", default="minimax/minimax-m2.5:free", help="OpenRouter model to use")
     parser.add_argument("--threshold", type=float, default=0.4, help="Uncertainty threshold")
-    parser.add_argument("--aggregation", default="min", choices=["min", "mean", "weighted"])
+    parser.add_argument("--aggregation", default="min", choices=["min", "mean"])
     args = parser.parse_args()
 
     estimator = ConfidenceEstimator(
