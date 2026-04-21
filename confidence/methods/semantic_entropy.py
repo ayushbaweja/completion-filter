@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import sys
+import os
 
-from openai import AsyncOpenAI
-
-import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+
+from google import genai
+from google.genai import types
+
 from confidence.utils import mean_pairwise_cosine
 from shared.models import ConfidenceResult
 
@@ -18,40 +21,45 @@ class SemanticEntropyConfidence:
     High similarity = consistent answers = high confidence.
     """
 
-    def __init__(self, client: AsyncOpenAI):
+    def __init__(self, client: genai.Client):
         self.client = client
 
-    async def _generate_one(
+    def _generate_one(
         self, prompt: str, model: str, temperature: float
     ) -> str:
-        response = await self.client.chat.completions.create(
+        response = self.client.models.generate_content(
             model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
+            contents=prompt,
+            config=types.GenerateContentConfig(temperature=temperature),
         )
-        return response.choices[0].message.content or ""
+        return response.text or ""
 
     async def estimate(
         self,
         prompt: str,
-        model: str = "gpt-4o",
+        model: str = "gemma-4-31b-it",
         n_samples: int = 5,
         temperature: float = 0.8,
-        embedding_model: str = "text-embedding-3-small",
+        embedding_model: str = "text-embedding-004",
     ) -> ConfidenceResult:
         # Generate N responses concurrently
         tasks = [
-            self._generate_one(prompt, model, temperature)
+            asyncio.to_thread(self._generate_one, prompt, model, temperature)
             for _ in range(n_samples)
         ]
         responses = await asyncio.gather(*tasks)
 
-        # Embed all responses in a single batch call
-        embed_response = await self.client.embeddings.create(
-            model=embedding_model,
-            input=list(responses),
-        )
-        embeddings = [item.embedding for item in embed_response.data]
+        # Embed all responses
+        embed_tasks = [
+            asyncio.to_thread(
+                self.client.models.embed_content,
+                model=embedding_model,
+                contents=resp,
+            )
+            for resp in responses
+        ]
+        embed_results = await asyncio.gather(*embed_tasks)
+        embeddings = [r.embeddings[0].values for r in embed_results]
 
         # Compute mean pairwise cosine similarity
         agreement = mean_pairwise_cosine(embeddings)

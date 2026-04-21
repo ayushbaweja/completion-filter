@@ -1,52 +1,60 @@
 from __future__ import annotations
 
+import asyncio
 import math
+import sys
+import os
 
-from openai import AsyncOpenAI
-
-import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+
+from google import genai
+from google.genai import types
+
 from shared.models import ConfidenceResult
 
 
 class LogprobConfidence:
     """Confidence estimation via average token log-probabilities.
 
-    Uses OpenAI's logprobs parameter to get per-token log-probabilities,
+    Uses Gemini's response_logprobs to get per-token log-probabilities,
     then computes exp(mean_logprob) as a confidence score in (0, 1].
     """
 
-    def __init__(self, client: AsyncOpenAI):
+    def __init__(self, client: genai.Client):
         self.client = client
 
     async def estimate(
         self,
         prompt: str,
-        model: str = "gpt-4o",
+        model: str = "gemma-4-31b-it",
     ) -> tuple[ConfidenceResult, str]:
-        """Estimate confidence and return (result, generated_text).
-
-        Returns both so the draft response can be reused by other methods.
-        """
-        response = await self.client.chat.completions.create(
+        """Estimate confidence and return (result, generated_text)."""
+        response = await asyncio.to_thread(
+            self.client.models.generate_content,
             model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0,
-            logprobs=True,
-            top_logprobs=1,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0,
+                response_logprobs=True,
+                logprobs=1,
+            ),
         )
 
-        choice = response.choices[0]
-        text = choice.message.content or ""
+        text = response.text or ""
 
-        tokens = choice.logprobs.content if choice.logprobs else []
-        if not tokens:
+        logprobs_result = response.candidates[0].logprobs_result if response.candidates else None
+        if not logprobs_result or not logprobs_result.chosen_candidates:
             return ConfidenceResult(
                 score=0.0, method_used="logprob", raw_logprob=None, sample_agreement=None
             ), text
 
-        avg_logprob = sum(t.logprob for t in tokens) / len(tokens)
-        # exp(avg_logprob) = geometric mean of token probabilities
+        token_logprobs = [t.log_probability for t in logprobs_result.chosen_candidates]
+        if not token_logprobs:
+            return ConfidenceResult(
+                score=0.0, method_used="logprob", raw_logprob=None, sample_agreement=None
+            ), text
+
+        avg_logprob = sum(token_logprobs) / len(token_logprobs)
         score = math.exp(avg_logprob)
 
         return ConfidenceResult(

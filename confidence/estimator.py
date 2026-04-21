@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
+from google import genai
 
 load_dotenv()
 
@@ -28,11 +28,11 @@ class ConfidenceEstimator:
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = "gpt-4o",
+        model: str = "gemma-4-31b-it",
         uncertainty_threshold: float = 0.4,
         aggregation: str = "min",  # "min" | "mean" | "weighted"
     ):
-        self.client = AsyncOpenAI(api_key=api_key)
+        self.client = genai.Client(api_key=api_key or os.getenv("GEMINI_API_KEY"))
         self.model = model
         self.uncertainty_threshold = uncertainty_threshold
         self.aggregation = aggregation
