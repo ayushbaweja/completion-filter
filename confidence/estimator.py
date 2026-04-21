@@ -6,7 +6,10 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from dotenv import load_dotenv
 from openai import AsyncOpenAI
+
+load_dotenv()
 
 from confidence.methods.logprob import LogprobConfidence
 from confidence.methods.semantic_entropy import SemanticEntropyConfidence

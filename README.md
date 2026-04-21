@@ -15,7 +15,7 @@ Confidence estimation pipeline for LLM outputs. Estimates how confident a model 
 ```bash
 uv venv --python 3.12 && source .venv/bin/activate
 uv pip install -r requirements.txt
-export OPENAI_API_KEY=your-key
+cp .env.example .env  # then add your OpenAI API key
 ```
 
 ## Usage
