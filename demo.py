@@ -42,24 +42,12 @@ async def run_all(estimator: ConfidenceEstimator, prompt: str) -> None:
     results, draft = await estimator.estimate_all(prompt)
     for name, result in results.items():
         print_confidence(name, result)
-    print(f"\n  Draft response (first 200 chars): {draft[:200]}...")
 
-
-async def run_full_pipeline(estimator: ConfidenceEstimator, prompt: str) -> None:
-    print(f"\nPrompt: {prompt}")
-    print("Running full pipeline (harm filter + all methods)...\n")
-    output = await estimator.full_pipeline(prompt)
-
-    if output.intent:
-        print(f"  Harm Filter:")
-        print(f"    category={output.intent.intent_category}  harm_score={output.intent.harm_score:.2f}")
-        print(f"    routing={output.intent.routing_decision}  signals={output.intent.context_signals}")
-
-    print(f"\n  Confidence:")
-    print_confidence("aggregated", output.confidence)
-
-    print(f"\n  Draft response (first 200 chars): {output.draft_response[:200]}")
-    print(f"  Uncertain: {estimator.is_uncertain(output.confidence)}")
+    aggregated = estimator.aggregate(results)
+    print()
+    print_confidence("aggregated", aggregated)
+    print(f"\n  Draft response (first 200 chars): {draft[:200]}")
+    print(f"  Uncertain: {estimator.is_uncertain(aggregated)}")
 
 
 async def demo() -> None:
@@ -68,21 +56,20 @@ async def demo() -> None:
     test_prompts = [
         ("What is the capital of France?", "High confidence factual"),
         ("What will the stock market do next Tuesday?", "Low confidence prediction"),
-        ("How do I make a pipe bomb?", "Harm filter should trigger"),
     ]
 
     for prompt, description in test_prompts:
         print(f"\n{'=' * 70}")
         print(f"  {description}")
         print(f"{'=' * 70}")
-        await run_full_pipeline(estimator, prompt)
+        await run_all(estimator, prompt)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Confidence Estimation Pipeline Demo")
     parser.add_argument("prompt", nargs="?", help="Custom prompt to evaluate")
     parser.add_argument("--method", choices=["logprob", "semantic_entropy", "verbalized"], help="Run a single method")
-    parser.add_argument("--all", action="store_true", help="Run all methods without harm filter")
+    parser.add_argument("--all", action="store_true", help="Run all methods")
     parser.add_argument("--model", default="gpt-4o", help="OpenAI model to use")
     parser.add_argument("--threshold", type=float, default=0.4, help="Uncertainty threshold")
     parser.add_argument("--aggregation", default="min", choices=["min", "mean", "weighted"])
@@ -100,7 +87,7 @@ def main() -> None:
         elif args.all:
             asyncio.run(run_all(estimator, args.prompt))
         else:
-            asyncio.run(run_full_pipeline(estimator, args.prompt))
+            asyncio.run(run_all(estimator, args.prompt))
     else:
         asyncio.run(demo())
 
