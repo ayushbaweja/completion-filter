@@ -16,7 +16,20 @@ from confidence.methods.verbalized import VerbalizedConfidence
 from shared.models import ConfidenceResult
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-DEFAULT_MODEL = "minimax/minimax-m2.5:free"
+OPENAI_BASE_URL = "https://api.openai.com/v1"
+OPENROUTER_DEFAULT_MODEL = "minimax/minimax-m2.5:free"
+OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
+
+
+def _resolve_client(api_key: str | None = None) -> tuple[str, str, str]:
+    """Return (api_key, base_url, default_model) based on which env var is set."""
+    key = api_key or os.getenv("OPENROUTER_API_KEY")
+    if key:
+        return key, OPENROUTER_BASE_URL, OPENROUTER_DEFAULT_MODEL
+    key = os.getenv("OPENAI_API_KEY")
+    if key:
+        return key, OPENAI_BASE_URL, OPENAI_DEFAULT_MODEL
+    raise RuntimeError("Set OPENROUTER_API_KEY or OPENAI_API_KEY in .env")
 
 
 class ConfidenceEstimator:
@@ -30,15 +43,16 @@ class ConfidenceEstimator:
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = DEFAULT_MODEL,
+        model: str | None = None,
         uncertainty_threshold: float = 0.4,
         aggregation: str = "min",  # "min" | "mean"
     ):
+        resolved_key, base_url, default_model = _resolve_client(api_key)
         self.client = AsyncOpenAI(
-            api_key=api_key or os.getenv("OPENROUTER_API_KEY"),
-            base_url=OPENROUTER_BASE_URL,
+            api_key=resolved_key,
+            base_url=base_url,
         )
-        self.model = model
+        self.model = model or default_model
         self.uncertainty_threshold = uncertainty_threshold
         self.aggregation = aggregation
 
