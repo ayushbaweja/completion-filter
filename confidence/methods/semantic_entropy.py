@@ -61,12 +61,22 @@ class SemanticEntropyConfidence:
     async def _generate_one(
         self, prompt: str, model: str, temperature: float
     ) -> str:
-        response = await self.client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-        )
-        return response.choices[0].message.content or ""
+        for attempt in range(4):
+            try:
+                response = await self.client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temperature,
+                    max_tokens=1024,
+                )
+                return response.choices[0].message.content or ""
+            except Exception as e:
+                if "429" in str(e) and attempt < 3:
+                    wait = 20 * (attempt + 1)
+                    print(f"  [Semantic entropy rate limited, waiting {wait}s...]")
+                    await asyncio.sleep(wait)
+                else:
+                    raise
 
     async def estimate(
         self,

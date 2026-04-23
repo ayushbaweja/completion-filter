@@ -19,7 +19,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from confidence import ConfidenceEstimator
 from harm import HarmClassifier
-from shared.models import IntentResult, ConfidenceResult
+from shared.models import IntentResult, ConfidenceResult, OutputRequest
+from output.formatter import format_response
 
 
 def print_confidence(label: str, result: ConfidenceResult) -> None:
@@ -42,20 +43,14 @@ async def run_pipeline(
     classifier: HarmClassifier,
     prompt: str,
 ) -> None:
-    """Full pipeline: harm pre-filter → confidence estimation."""
+    """Full pipeline: harm pre-filter → confidence estimation → output formatting."""
     print(f"\nPrompt: {prompt}\n")
 
     # Stage 1: Harm & intent classification (pre-filter)
     intent = await classifier.classify(prompt)
     print_intent(intent)
 
-    if intent.routing_decision == "refuse":
-        print(f"\n  REFUSED — ethical refusal, not epistemic uncertainty.")
-        print(f"  Reason: {intent.harm_category} (severity={intent.severity}, "
-              f"intent={intent.intent})")
-        return
-
-    # Stage 2: Confidence estimation (only if not refused)
+    # Stage 2: Confidence estimation (runs regardless of routing decision)
     print()
     results, draft = await estimator.estimate_all(prompt)
     for name, result in results.items():
@@ -65,10 +60,25 @@ async def run_pipeline(
     print()
     print_confidence("aggregated", aggregated)
 
-    # Stage 3: Combine signals for routing summary
-    print(f"\n  Model response:\n{draft}")
-    print(f"\n  Routing: {intent.routing_decision}")
-    print(f"  Uncertain: {estimator.is_uncertain(aggregated)}")
+    # Stage 3: Output formatting (Ria's part)
+    output_request = OutputRequest(
+        original_prompt=prompt,
+        intent=intent,
+        confidence=aggregated,
+        draft_response=draft,
+    )
+    final = await format_response(output_request)
+
+    print(f"\n  {'=' * 60}")
+    print(f"  FINAL RESPONSE ({final.display_mode.upper()}):")
+    print(f"  {'=' * 60}")
+    print(f"{final.response_text}")
+    print(f"\n  Helpfulness score : {final.helpfulness_score:.2f} / 5.0")
+    print(f"  Regenerated       : {final.was_regenerated}")
+    if final.hedge_language:
+        print(f"  Hedge prefix      : {final.hedge_language!r}")
+    if final.refusal_reason:
+        print(f"  Refusal reason    : {final.refusal_reason}")
 
 
 async def run_harm_only(classifier: HarmClassifier, prompt: str) -> None:
@@ -90,11 +100,16 @@ async def demo() -> None:
         ("What are common symptoms of depression?", "Sensitive but benign"),
     ]
 
-    for prompt, description in test_prompts:
+    for i, (prompt, description) in enumerate(test_prompts):
         print(f"\n{'=' * 70}")
         print(f"  {description}")
         print(f"{'=' * 70}")
         await run_pipeline(estimator, classifier, prompt)
+
+        # Wait between prompts to respect free-tier rate limit (8 req/min)
+        if i < len(test_prompts) - 1:
+            print("\n  [Waiting 15s for rate limit...]\n")
+            await asyncio.sleep(15)
 
 
 def main() -> None:

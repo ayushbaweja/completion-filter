@@ -17,7 +17,7 @@ from shared.models import ConfidenceResult
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENAI_BASE_URL = "https://api.openai.com/v1"
-OPENROUTER_DEFAULT_MODEL = "minimax/minimax-m2.5:free"
+OPENROUTER_DEFAULT_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"
 
 
@@ -60,13 +60,22 @@ class ConfidenceEstimator:
         self._verbalized = VerbalizedConfidence(self.client)
 
     async def _generate_draft(self, prompt: str) -> str:
-        """Generate a draft response to use for verbalized confidence."""
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0,
-        )
-        return response.choices[0].message.content or ""
+        for attempt in range(4):
+            try:
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0,
+                    max_tokens=1024,
+                )
+                return response.choices[0].message.content or ""
+            except Exception as e:
+                if "429" in str(e) and attempt < 3:
+                    wait = 20 * (attempt + 1)
+                    print(f"  [Estimator rate limited, waiting {wait}s...]")
+                    await asyncio.sleep(wait)
+                else:
+                    raise
 
     async def estimate(
         self, prompt: str, method: str = "semantic_entropy"

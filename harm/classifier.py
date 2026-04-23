@@ -77,14 +77,25 @@ class HarmClassifier:
 
     async def classify(self, query: str) -> IntentResult:
         """Run the harm/intent classifier on a query."""
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "user", "content": _CLASSIFIER_PROMPT.format(query=query)},
-            ],
-            temperature=0,
-            max_tokens=300,
-        )
+        for attempt in range(3):
+            try:
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "user", "content": _CLASSIFIER_PROMPT.format(query=query)},
+                    ],
+                    temperature=0,
+                    max_tokens=300,
+                )
+                break
+            except Exception as e:
+                if "429" in str(e) and attempt < 2:
+                    wait = 20 * (attempt + 1)
+                    print(f"  [Classifier rate limited, waiting {wait}s...]")
+                    import asyncio
+                    await asyncio.sleep(wait)
+                else:
+                    raise
 
         raw = (response.choices[0].message.content or "").strip()
         parsed = self._parse_response(raw)
