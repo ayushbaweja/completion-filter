@@ -28,24 +28,34 @@ class VerbalizedConfidence:
         self,
         prompt: str,
         draft_response: str,
-        model: str = "minimax/minimax-m2.5:free",
+        model: str = "meta-llama/llama-3.3-70b-instruct:free",
     ) -> ConfidenceResult:
-        response = await self.client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Question: {prompt}\n\n"
-                        f"Draft Answer: {draft_response}\n\n"
-                        "Confidence (0-100):"
-                    ),
-                },
-            ],
-            temperature=0,
-            max_tokens=5,
-        )
+        for attempt in range(4):
+            try:
+                response = await self.client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": _SYSTEM_PROMPT},
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Question: {prompt}\n\n"
+                                f"Draft Answer: {draft_response}\n\n"
+                                "Confidence (0-100):"
+                            ),
+                        },
+                    ],
+                    temperature=0,
+                    max_tokens=5,
+                )
+                break
+            except Exception as e:
+                if "429" in str(e) and attempt < 3:
+                    wait = 20 * (attempt + 1)
+                    print(f"  [Verbalized rate limited, waiting {wait}s...]")
+                    await asyncio.sleep(wait)
+                else:
+                    raise
 
         raw = (response.choices[0].message.content or "").strip()
         match = re.search(r"(\d+)", raw)
